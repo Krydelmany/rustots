@@ -3,36 +3,41 @@ use std::io::{self, Read};
 use std::fs;
 
 mod lexer;
-mod parse;
-mod types;
-mod symbols;
-mod collect;
-mod diagnostics;
 
 use lexer::Lexer;
-use diagnostics::DiagnosticCollector;
 
 fn main() -> anyhow::Result<()> {
     let matches = Command::new("rustots")
-        .version("0.1.0")
-        .about("TypeScript Static Analyzer")
-        .arg(
-            Arg::new("lex")
-                .long("lex")
-                .help("Only perform lexical analysis")
-                .action(clap::ArgAction::SetTrue),
-        )
+        .about("Analisador Léxico para TypeScript")
         .arg(
             Arg::new("stdin")
                 .long("stdin")
-                .help("Read from stdin")
+                .help("Ler da entrada padrão (stdin)")
                 .action(clap::ArgAction::SetTrue),
         )
         .arg(
             Arg::new("file")
-                .help("Input file")
+                .help("Arquivo de entrada (.ts)")
                 .value_name("FILE")
                 .index(1),
+        )
+        .arg(
+            Arg::new("filter")
+                .long("filter")
+                .help("Filtrar tipos de token (ex: keyword,identifier)")
+                .value_name("TYPES"),
+        )
+        .arg(
+            Arg::new("no-whitespace")
+                .long("no-whitespace")
+                .help("Omitir tokens de whitespace e newline")
+                .action(clap::ArgAction::SetTrue),
+        )
+        .arg(
+            Arg::new("only-malformed")
+                .long("only-malformed")
+                .help("Mostrar apenas tokens com problemas (malformed)")
+                .action(clap::ArgAction::SetTrue),
         )
         .get_matches();
 
@@ -42,30 +47,35 @@ fn main() -> anyhow::Result<()> {
         buffer
     } else if let Some(file_path) = matches.get_one::<String>("file") {
         fs::read_to_string(file_path)?
-    } else {
-        eprintln!("Error: No input provided. Use --stdin or provide a file path.");
-        std::process::exit(1);
-    };
+        } else {
+            eprintln!("Erro: Nenhuma entrada fornecida. Use --stdin ou informe um caminho de arquivo.");
+            std::process::exit(1);
+        };
 
-    let mut diagnostics = DiagnosticCollector::new();
-    let mut lexer = Lexer::new(&input, &mut diagnostics);
-    let tokens = lexer.tokenize();
+    let mut lexer = Lexer::new(&input);
+    let mut tokens = lexer.tokenize();
 
-    if matches.get_flag("lex") {
-        // Only lexical analysis
-        let result = serde_json::json!({
-            "tokens": tokens,
-            "diagnostics": diagnostics.get_diagnostics()
-        });
-        println!("{}", serde_json::to_string_pretty(&result)?);
-    } else {
-        // Full analysis (placeholder)
-        let result = serde_json::json!({
-            "tokens": tokens,
-            "diagnostics": diagnostics.get_diagnostics()
-        });
-        println!("{}", serde_json::to_string_pretty(&result)?);
+    // Filtrar tokens se necessário
+    if matches.get_flag("no-whitespace") {
+        tokens.retain(|t| !matches!(t.token_type, lexer::TokenType::Whitespace | lexer::TokenType::Newline));
     }
+
+    if matches.get_flag("only-malformed") {
+        tokens.retain(|t| t.malformed.is_some());
+    }
+
+    if let Some(filter_types) = matches.get_one::<String>("filter") {
+        let types: Vec<&str> = filter_types.split(',').map(|s| s.trim()).collect();
+        tokens.retain(|t| {
+            let type_str = format!("{:?}", t.token_type).to_lowercase();
+            types.iter().any(|filter| type_str.contains(&filter.to_lowercase()))
+        });
+    }
+
+    let result = serde_json::json!({
+        "tokens": tokens
+    });
+    println!("{}", serde_json::to_string_pretty(&result)?);
 
     Ok(())
 }

@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-use crate::diagnostics::DiagnosticCollector;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
@@ -7,6 +6,8 @@ pub struct Token {
     pub token_type: TokenType,
     pub value: String,
     pub position: Position,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub malformed: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +21,7 @@ pub enum TokenType {
     Comment,
     Whitespace,
     Newline,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -35,29 +37,27 @@ pub struct Lexer<'a> {
     position: usize,
     line: usize,
     column: usize,
-    diagnostics: &'a mut DiagnosticCollector,
 }
 
 impl<'a> Lexer<'a> {
-    pub fn new(input: &'a str, diagnostics: &'a mut DiagnosticCollector) -> Self {
+    pub fn new(input: &'a str) -> Self {
         Self {
             input,
             position: 0,
             line: 1,
             column: 1,
-            diagnostics,
         }
     }
 
     pub fn tokenize(&mut self) -> Vec<Token> {
         let mut tokens = Vec::new();
-        
+
         while self.position < self.input.len() {
             if let Some(token) = self.next_token() {
                 tokens.push(token);
             }
         }
-        
+
         tokens
     }
 
@@ -79,6 +79,7 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed: None,
                     })
                 }
                 '\n' | '\r' => {
@@ -97,9 +98,10 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed: None,
                     })
                 }
-                'a'..='z' | 'A'..='Z' | '_' | '$' => {
+                _ if ch.is_alphabetic() || ch == '_' || ch == '$' => {
                     let value = self.consume_identifier();
                     let token_type = if self.is_keyword(&value) {
                         TokenType::Keyword
@@ -115,10 +117,11 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed: None,
                     })
                 }
-                '0'..='9' => {
-                    let value = self.consume_number();
+                _ if ch.is_numeric() => {
+                    let (value, malformed) = self.consume_number();
                     Some(Token {
                         token_type: TokenType::Literal,
                         value,
@@ -128,10 +131,11 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed,
                     })
                 }
                 '"' | '\'' | '`' => {
-                    let value = self.consume_string(ch);
+                    let (value, malformed) = self.consume_string(ch);
                     Some(Token {
                         token_type: TokenType::Literal,
                         value,
@@ -141,11 +145,12 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed,
                     })
                 }
                 '/' => {
                     if self.peek_char() == Some('/') || self.peek_char() == Some('*') {
-                        let value = self.consume_comment();
+                        let (value, malformed) = self.consume_comment();
                         Some(Token {
                             token_type: TokenType::Comment,
                             value,
@@ -155,6 +160,7 @@ impl<'a> Lexer<'a> {
                                 line: start_line,
                                 column: start_column,
                             },
+                            malformed,
                         })
                     } else {
                         self.advance();
@@ -167,6 +173,7 @@ impl<'a> Lexer<'a> {
                                 line: start_line,
                                 column: start_column,
                             },
+                            malformed: None,
                         })
                     }
                 }
@@ -181,6 +188,7 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed: None,
                     })
                 }
                 '{' | '}' | '(' | ')' | '[' | ']' | ';' | ',' | '.' => {
@@ -194,11 +202,23 @@ impl<'a> Lexer<'a> {
                             line: start_line,
                             column: start_column,
                         },
+                        malformed: None,
                     })
                 }
                 _ => {
+                    // Caractere não reconhecido - gera token Unknown
                     self.advance();
-                    None
+                    return Some(Token {
+                        token_type: TokenType::Unknown,
+                        value: ch.to_string(),
+                        position: Position {
+                            start: start_pos,
+                            end: self.position,
+                            line: start_line,
+                            column: start_column,
+                        },
+                        malformed: Some(format!("Caractere não reconhecido: '{}'", ch)),
+                    });
                 }
             }
         } else {
@@ -207,16 +227,16 @@ impl<'a> Lexer<'a> {
     }
 
     fn current_char(&self) -> Option<char> {
-        self.input.chars().nth(self.position)
+        self.input[self.position..].chars().next()
     }
 
     fn peek_char(&self) -> Option<char> {
-        self.input.chars().nth(self.position + 1)
+        self.input[self.position..].chars().nth(1)
     }
 
     fn advance(&mut self) {
-        if self.position < self.input.len() {
-            self.position += 1;
+        if let Some(ch) = self.current_char() {
+            self.position += ch.len_utf8();
             self.column += 1;
         }
     }
@@ -243,44 +263,70 @@ impl<'a> Lexer<'a> {
         self.input[start..self.position].to_string()
     }
 
-    fn consume_number(&mut self) -> String {
+    fn consume_number(&mut self) -> (String, Option<String>) {
         let start = self.position;
+        let mut dot_count = 0;
+        
         while let Some(ch) = self.current_char() {
-            if ch.is_numeric() || ch == '.' {
+            if ch.is_numeric() {
+                self.advance();
+            } else if ch == '.' {
+                dot_count += 1;
                 self.advance();
             } else {
                 break;
             }
         }
-        self.input[start..self.position].to_string()
+        
+        let value = self.input[start..self.position].to_string();
+        let malformed = if dot_count > 1 {
+            Some(format!("Número com múltiplos pontos decimais ({})", dot_count))
+        } else {
+            None
+        };
+        
+        (value, malformed)
     }
 
-    fn consume_string(&mut self, quote: char) -> String {
+    fn consume_string(&mut self, quote: char) -> (String, Option<String>) {
         let start = self.position;
         self.advance(); // consume opening quote
-        
+        let mut terminated = false;
+
         while let Some(ch) = self.current_char() {
             if ch == quote {
                 self.advance(); // consume closing quote
+                terminated = true;
                 break;
             } else if ch == '\\' {
                 self.advance(); // consume backslash
                 if self.current_char().is_some() {
-                    self.advance(); // consume escaped character
+                    self.advance(); // consume escaped char
                 }
+            } else if ch == '\n' || ch == '\r' {
+                // String atravessa linha (erro em alguns casos, mas continuamos)
+                break;
             } else {
                 self.advance();
             }
         }
-        
-        self.input[start..self.position].to_string()
+
+        let value = self.input[start..self.position].to_string();
+        let malformed = if !terminated {
+            Some("String não terminada".to_string())
+        } else {
+            None
+        };
+
+        (value, malformed)
     }
 
-    fn consume_comment(&mut self) -> String {
+    fn consume_comment(&mut self) -> (String, Option<String>) {
         let start = self.position;
-        
+        let mut terminated = true;
+
         if self.peek_char() == Some('/') {
-            // Single line comment
+            // Single-line comment - sempre terminado
             while let Some(ch) = self.current_char() {
                 if ch == '\n' || ch == '\r' {
                     break;
@@ -288,29 +334,41 @@ impl<'a> Lexer<'a> {
                 self.advance();
             }
         } else if self.peek_char() == Some('*') {
-            // Multi-line comment
+            // Multi-line comment - pode não terminar
             self.advance(); // consume '/'
             self.advance(); // consume '*'
-            
-            while self.position < self.input.len() - 1 {
+            terminated = false;
+
+            while self.position < self.input.len() {
                 if self.current_char() == Some('*') && self.peek_char() == Some('/') {
                     self.advance(); // consume '*'
                     self.advance(); // consume '/'
+                    terminated = true;
                     break;
                 }
-                self.advance();
+                if self.current_char().is_some() {
+                    self.advance();
+                } else {
+                    break;
+                }
             }
         }
-        
-        self.input[start..self.position].to_string()
+
+        let value = self.input[start..self.position].to_string();
+        let malformed = if !terminated {
+            Some("Comentário multilinha não fechado".to_string())
+        } else {
+            None
+        };
+
+        (value, malformed)
     }
 
     fn consume_operator(&mut self) -> String {
         let start = self.position;
         let ch = self.current_char().unwrap();
         self.advance();
-        
-        // Handle multi-character operators
+
         match ch {
             '=' => {
                 if self.current_char() == Some('=') {
@@ -354,22 +412,85 @@ impl<'a> Lexer<'a> {
             }
             _ => {}
         }
-        
+
         self.input[start..self.position].to_string()
     }
 
     fn is_keyword(&self, value: &str) -> bool {
-        matches!(value, 
-            "abstract" | "any" | "as" | "asserts" | "bigint" | "boolean" | "break" | "case" |
-            "catch" | "class" | "const" | "continue" | "debugger" | "declare" | "default" |
-            "delete" | "do" | "else" | "enum" | "export" | "extends" | "false" | "finally" |
-            "for" | "from" | "function" | "get" | "if" | "implements" | "import" | "in" |
-            "infer" | "instanceof" | "interface" | "is" | "keyof" | "let" | "module" | 
-            "namespace" | "never" | "new" | "null" | "number" | "object" | "of" | "package" |
-            "private" | "protected" | "public" | "readonly" | "require" | "return" | "set" |
-            "static" | "string" | "super" | "switch" | "symbol" | "this" | "throw" | "true" |
-            "try" | "type" | "typeof" | "undefined" | "unique" | "unknown" | "var" | "void" |
-            "while" | "with" | "yield"
+        matches!(
+            value,
+            "abstract"
+                | "any"
+                | "as"
+                | "asserts"
+                | "bigint"
+                | "boolean"
+                | "break"
+                | "case"
+                | "catch"
+                | "class"
+                | "const"
+                | "continue"
+                | "debugger"
+                | "declare"
+                | "default"
+                | "delete"
+                | "do"
+                | "else"
+                | "enum"
+                | "export"
+                | "extends"
+                | "false"
+                | "finally"
+                | "for"
+                | "from"
+                | "function"
+                | "get"
+                | "if"
+                | "implements"
+                | "import"
+                | "in"
+                | "infer"
+                | "instanceof"
+                | "interface"
+                | "is"
+                | "keyof"
+                | "let"
+                | "module"
+                | "namespace"
+                | "never"
+                | "new"
+                | "null"
+                | "number"
+                | "object"
+                | "of"
+                | "package"
+                | "private"
+                | "protected"
+                | "public"
+                | "readonly"
+                | "require"
+                | "return"
+                | "set"
+                | "static"
+                | "string"
+                | "super"
+                | "switch"
+                | "symbol"
+                | "this"
+                | "throw"
+                | "true"
+                | "try"
+                | "type"
+                | "typeof"
+                | "undefined"
+                | "unique"
+                | "unknown"
+                | "var"
+                | "void"
+                | "while"
+                | "with"
+                | "yield"
         )
     }
 }
