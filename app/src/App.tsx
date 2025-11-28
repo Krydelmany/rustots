@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import { TokensView, Token } from './components/TokensView';
 import { ASTView } from './components/ASTView';
@@ -175,7 +175,7 @@ console.log(result);`);
                 }
               });
             }}
-            onMount={(editor, monaco) => {
+            onMount={(_editor, monaco) => {
               monaco.editor.setTheme('rustots-dark');
             }}
             options={{
