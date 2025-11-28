@@ -30,14 +30,6 @@ Este projeto é um analisador léxico e sintático para TypeScript, feito com um
 
 ---
 
-## Explicação do Código
-
-Preparamos uma documentação didática para explicar como cada parte funciona:
-
-*   [Entendendo o Lexer (Leitura de palavras)](explicacoes/1_lexer.md)
-*   [Entendendo o Parser (Análise gramatical)](explicacoes/2_parser.md)
-*   [Visão Geral e Main](explicacoes/3_main_e_geral.md)
-
 ## Estrutura de Pastas
 
 *   `core/`: O "cérebro" do projeto. Código em Rust que lê o arquivo e monta a árvore.
@@ -45,4 +37,4 @@ Preparamos uma documentação didática para explicar como cada parte funciona:
 *   `explicacoes/`: Documentação extra para estudo.
 
 ---
-**Autores:** [Nomes dos Alunos]
+**Autores:** [Giovani Claro Moraes, Gabriel de Almeida Cerqueira, Leonardo Donzelli Cantazini, Rennan Samuel de Souza]
