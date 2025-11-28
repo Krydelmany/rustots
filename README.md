@@ -34,7 +34,6 @@ Este projeto é um analisador léxico e sintático para TypeScript, feito com um
 
 *   `core/`: O "cérebro" do projeto. Código em Rust que lê o arquivo e monta a árvore.
 *   `app/`: A "cara" do projeto. Interface gráfica para facilitar o uso.
-*   `explicacoes/`: Documentação extra para estudo.
 
 ---
 **Autores:** [Giovani Claro Moraes, Gabriel de Almeida Cerqueira, Leonardo Donzelli Cantazini, Rennan Samuel de Souza]
