@@ -46,10 +46,13 @@ fn main() -> anyhow::Result<()> {
     let tokens = lexer.tokenize();
 
     let mut parser = Parser::new(tokens.clone());
+    let mut parse_error: Option<String> = None;
     let ast = match parser.parse() {
         Ok(program) => Some(program),
         Err(e) => {
-            eprintln!("Erro de Análise: {:?}", e);
+            let error_msg = format!("{:?}", e);
+            eprintln!("Erro de Análise: {}", error_msg);
+            parse_error = Some(error_msg);
             None
         }
     };
@@ -61,7 +64,8 @@ fn main() -> anyhow::Result<()> {
 
     let result = serde_json::json!({
         "tokens": result_tokens,
-        "ast": ast
+        "ast": ast,
+        "error": parse_error
     });
     println!("{}", serde_json::to_string_pretty(&result)?);
 

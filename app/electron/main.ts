@@ -3,7 +3,7 @@ import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const isDev = process.env.ELECTRON_IS_DEV === '1';
+
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -40,7 +40,7 @@ app.on('activate', () => {
 });
 
 // IPC handlers
-ipcMain.handle('analyze-code', async (event, code: string) => {
+ipcMain.handle('analyze-code', async (_event, code: string) => {
   return new Promise((resolve, reject) => {
     const isWindows = process.platform === 'win32';
     const extension = isWindows ? '.exe' : '';
@@ -54,15 +54,25 @@ ipcMain.handle('analyze-code', async (event, code: string) => {
 
     // Check if binary exists, fallback to debug version
     let binaryPath = '';
-    if (fs.existsSync(rustotsBinary)) {
-      binaryPath = rustotsBinary;
-      console.log('Found release binary');
-    } else if (fs.existsSync(debugBinary)) {
-      binaryPath = debugBinary;
-      console.log('Found debug binary');
+
+    if (app.isPackaged) {
+      // In production, the binary is in the resources folder
+      binaryPath = path.join(process.resourcesPath, `rustots${extension}`);
+      console.log('Checking packaged binary:', binaryPath);
     } else {
-      console.error('Binary not found in release or debug paths');
-      reject(new Error(`Rust binary not found. Checked:\n${rustotsBinary}\n${debugBinary}`));
+      // In development, look in the target folders
+      if (fs.existsSync(rustotsBinary)) {
+        binaryPath = rustotsBinary;
+        console.log('Found release binary');
+      } else if (fs.existsSync(debugBinary)) {
+        binaryPath = debugBinary;
+        console.log('Found debug binary');
+      }
+    }
+
+    if (!binaryPath || !fs.existsSync(binaryPath)) {
+      console.error('Binary not found');
+      reject(new Error(`Rust binary not found at: ${binaryPath}`));
       return;
     }
 
@@ -70,7 +80,7 @@ ipcMain.handle('analyze-code', async (event, code: string) => {
     const tempFilePath = path.join(app.getPath('userData'), 'temp_analysis.ts');
     try {
       fs.writeFileSync(tempFilePath, code);
-    } catch (e) {
+    } catch (e: any) {
       reject(new Error(`Failed to create temp file: ${e.message}`));
       return;
     }
@@ -105,7 +115,7 @@ ipcMain.handle('analyze-code', async (event, code: string) => {
         try {
           const result = JSON.parse(output);
           resolve(result);
-        } catch (e) {
+        } catch (e: any) {
           console.error('Parse error:', e);
           reject(new Error(`Failed to parse output: ${e.message}`));
         }
@@ -144,7 +154,7 @@ ipcMain.handle('open-file', async () => {
   return null;
 });
 
-ipcMain.handle('save-file', async (event, content: string, filePath?: string) => {
+ipcMain.handle('save-file', async (_event, content: string, filePath?: string) => {
   let targetPath = filePath;
 
   if (!targetPath) {

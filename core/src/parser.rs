@@ -136,7 +136,7 @@ impl Parser {
                 params.push(param);
                 // TODO: Implementar análise de tipos completa.
                 // Por enquanto, apenas consumimos a anotação de tipo para não quebrar o parser.
-                if self.match_punctuation(":") {
+                if self.match_operator(":") {
                     self.consume_type_annotation();
                 }
                 
@@ -148,7 +148,7 @@ impl Parser {
         self.consume(TokenType::Punctuation, ")")?;
 
         let mut return_type = None;
-        if self.match_punctuation(":") {
+        if self.match_operator(":") {
             return_type = Some(self.consume_type_annotation());
         }
 
