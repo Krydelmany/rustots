@@ -1,0 +1,29 @@
+# Rust
+/core/target/
+/core/Cargo.lock
+
+# Node.js
+/app/node_modules/
+/app/dist/
+/app/.next/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Electron
+/app/out/
+/app/build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
