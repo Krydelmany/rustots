@@ -1,32 +1,15 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-
-interface Token {
-  type: string;
-  value: string;
-  position: {
-    start: number;
-    end: number;
-    line: number;
-    column: number;
-  };
-}
-
-interface Diagnostic {
-  level: string;
-  message: string;
-  location: {
-    line: number;
-    column: number;
-    length: number;
-  };
-  code?: string;
-}
+import { TokensView, Token } from './components/TokensView';
+import { ASTView } from './components/ASTView';
+import { FolderOpen, Save, Play } from 'lucide-react';
 
 interface AnalysisResult {
   tokens: Token[];
-  diagnostics: Diagnostic[];
+  ast: any;
 }
+
+type Tab = 'tokens' | 'ast';
 
 function App() {
   const [code, setCode] = useState(`function hello(name: string): string {
@@ -35,10 +18,13 @@ function App() {
 
 const result = hello("TypeScript");
 console.log(result);`);
-  
+
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [currentFile, setCurrentFile] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('tokens');
+  const [panelWidth, setPanelWidth] = useState(750);
+  const [isResizing, setIsResizing] = useState(false);
 
   const analyzeCode = useCallback(async () => {
     if (!window.api) {
@@ -52,7 +38,6 @@ console.log(result);`);
       setAnalysisResult(result);
     } catch (error) {
       console.error('Analysis failed:', error);
-      // Show error in UI
     } finally {
       setIsAnalyzing(false);
     }
@@ -85,138 +70,174 @@ console.log(result);`);
     }
   }, [code, currentFile]);
 
+  const handleMouseDown = useCallback(() => {
+    setIsResizing(true);
+  }, []);
+
+  const handleMouseUp = useCallback(() => {
+    setIsResizing(false);
+  }, []);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (isResizing) {
+      const newWidth = window.innerWidth - e.clientX;
+      if (newWidth >= 300 && newWidth <= 800) {
+        setPanelWidth(newWidth);
+      }
+    }
+  }, [isResizing]);
+
+  useEffect(() => {
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      return () => {
+        document.removeEventListener('mousemove', handleMouseMove);
+        document.removeEventListener('mouseup', handleMouseUp);
+      };
+    }
+  }, [isResizing, handleMouseMove, handleMouseUp]);
+
   return (
-    <div className="flex h-screen bg-gray-900 text-white">
-      {/* Sidebar */}
-      <div className="w-80 bg-gray-800 flex flex-col">
-        {/* Header */}
-        <div className="p-4 border-b border-gray-700">
-          <h1 className="text-xl font-bold">TypeScript Analyzer</h1>
-          <div className="flex gap-2 mt-2">
+    <div className="flex flex-col h-screen bg-black text-gray-100 overflow-hidden">
+      {/* Header/Toolbar */}
+      <div className="border-b border-neutral-800 bg-neutral-950 px-6 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <h1 className="text-base font-semibold text-gray-200 tracking-tight">
+            Rustots
+          </h1>
+          <div className="h-4 w-px bg-neutral-800"></div>
+          <div className="flex gap-2">
             <button
               onClick={openFile}
-              className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded text-sm"
+              className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 rounded text-xs font-medium transition-all flex items-center gap-2 text-gray-400 hover:text-gray-200"
             >
-              Open
+              <FolderOpen className="w-3.5 h-3.5" />
+              Abrir
             </button>
             <button
               onClick={saveFile}
-              className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-sm"
+              disabled={!code}
+              className="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-800 hover:border-neutral-700 rounded text-xs font-medium transition-all flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-gray-200"
             >
-              Save
-            </button>
-            <button
-              onClick={analyzeCode}
-              disabled={isAnalyzing}
-              className="px-3 py-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-600 rounded text-sm"
-            >
-              {isAnalyzing ? 'Analyzing...' : 'Analyze'}
+              <Save className="w-3.5 h-3.5" />
+              Salvar
             </button>
           </div>
-          {currentFile && (
-            <div className="mt-2 text-xs text-gray-400 truncate">
-              {currentFile}
-            </div>
-          )}
         </div>
-
-        {/* Tokens */}
-        <div className="flex-1 overflow-auto">
-          <div className="p-4">
-            <h3 className="font-semibold mb-2">Tokens</h3>
-            {analysisResult?.tokens ? (
-              <div className="space-y-1">
-                {analysisResult.tokens
-                  .filter(token => token.type !== 'whitespace' && token.type !== 'newline')
-                  .map((token, index) => (
-                  <div
-                    key={index}
-                    className="p-2 bg-gray-700 rounded text-xs"
-                  >
-                    <div className="flex justify-between">
-                      <span className={`px-1 rounded text-xs ${
-                        token.type === 'keyword' ? 'bg-purple-600' :
-                        token.type === 'identifier' ? 'bg-blue-600' :
-                        token.type === 'literal' ? 'bg-green-600' :
-                        token.type === 'operator' ? 'bg-yellow-600' :
-                        token.type === 'punctuation' ? 'bg-gray-600' :
-                        'bg-gray-500'
-                      }`}>
-                        {token.type}
-                      </span>
-                      <span className="text-gray-300">
-                        {token.position.line}:{token.position.column}
-                      </span>
-                    </div>
-                    <div className="mt-1 font-mono text-white">
-                      {token.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-gray-400 text-sm">
-                Click "Analyze" to see tokens
-              </div>
-            )}
-          </div>
-
-          {/* Diagnostics */}
-          {analysisResult?.diagnostics && analysisResult.diagnostics.length > 0 && (
-            <div className="p-4 border-t border-gray-700">
-              <h3 className="font-semibold mb-2">Diagnostics</h3>
-              <div className="space-y-1">
-                {analysisResult.diagnostics.map((diagnostic, index) => (
-                  <div
-                    key={index}
-                    className={`p-2 rounded text-xs ${
-                      diagnostic.level === 'error' ? 'bg-red-900 border border-red-600' :
-                      diagnostic.level === 'warning' ? 'bg-yellow-900 border border-yellow-600' :
-                      'bg-blue-900 border border-blue-600'
-                    }`}
-                  >
-                    <div className="flex justify-between">
-                      <span className="capitalize font-semibold">
-                        {diagnostic.level}
-                      </span>
-                      <span className="text-gray-300">
-                        {diagnostic.location.line}:{diagnostic.location.column}
-                      </span>
-                    </div>
-                    <div className="mt-1">
-                      {diagnostic.message}
-                    </div>
-                    {diagnostic.code && (
-                      <div className="mt-1 text-gray-400">
-                        Code: {diagnostic.code}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
+        <div className="flex items-center gap-4">
+          {currentFile && (
+            <span className="text-xs text-gray-500 font-mono max-w-[300px] truncate">
+              {currentFile}
+            </span>
           )}
+          <button
+            onClick={analyzeCode}
+            disabled={isAnalyzing}
+            className="px-4 py-1.5 bg-gray-200 hover:bg-white text-black disabled:bg-neutral-800 disabled:text-gray-500 disabled:cursor-not-allowed rounded text-xs font-semibold transition-all flex items-center gap-2"
+          >
+            {isAnalyzing ? (
+              <>
+                <div className="w-3 h-3 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+                Analisando...
+              </>
+            ) : (
+              <>
+                <Play className="w-3.5 h-3.5" fill="currentColor" />
+                Analisar
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 flex flex-col">
-        <div className="flex-1">
+      {/* Main Content - Split View */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Left Panel - Editor */}
+        <div className="flex-1 flex flex-col min-w-[400px]">
           <Editor
             height="100%"
             defaultLanguage="typescript"
             value={code}
             onChange={(value) => setCode(value || '')}
             theme="vs-dark"
+            beforeMount={(monaco) => {
+              monaco.editor.defineTheme('rustots-dark', {
+                base: 'vs-dark',
+                inherit: true,
+                rules: [],
+                colors: {
+                  'editor.background': '#000000',
+                  'editor.foreground': '#e5e5e5',
+                  'editorLineNumber.foreground': '#525252',
+                  'editorLineNumber.activeForeground': '#a3a3a3',
+                  'editor.lineHighlightBackground': '#0a0a0a',
+                  'editorCursor.foreground': '#ffffff',
+                  'editor.selectionBackground': '#262626',
+                  'editor.inactiveSelectionBackground': '#171717',
+                }
+              });
+            }}
+            onMount={(editor, monaco) => {
+              monaco.editor.setTheme('rustots-dark');
+            }}
             options={{
               minimap: { enabled: false },
-              fontSize: 14,
+              fontSize: 13,
               lineNumbers: 'on',
               automaticLayout: true,
               tabSize: 2,
               insertSpaces: true,
+              padding: { top: 16, bottom: 16 },
+              fontFamily: "'JetBrains Mono', 'Fira Code', Consolas, monospace",
+              fontLigatures: true,
             }}
           />
+        </div>
+
+        {/* Resizable Divider */}
+        <div
+          className="w-1 bg-neutral-900 hover:bg-neutral-700 cursor-col-resize transition-colors relative group"
+          onMouseDown={handleMouseDown}
+        >
+          <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-neutral-700/20"></div>
+        </div>
+
+        {/* Right Panel - Analysis Tools */}
+        <div
+          className="flex flex-col bg-neutral-950"
+          style={{ width: `${panelWidth}px`, minWidth: '300px' }}
+        >
+          {/* Tabs */}
+          <div className="flex border-b border-neutral-900 bg-black">
+            <button
+              onClick={() => setActiveTab('tokens')}
+              className={`flex-1 px-4 py-2.5 text-xs font-medium transition-all ${activeTab === 'tokens'
+                ? 'text-gray-200 bg-neutral-950 border-b-2 border-gray-200'
+                : 'text-gray-500 hover:text-gray-300 border-b-2 border-transparent'
+                }`}
+            >
+              Tokens
+            </button>
+            <button
+              onClick={() => setActiveTab('ast')}
+              className={`flex-1 px-4 py-2.5 text-xs font-medium transition-all ${activeTab === 'ast'
+                ? 'text-gray-200 bg-neutral-950 border-b-2 border-gray-200'
+                : 'text-gray-500 hover:text-gray-300 border-b-2 border-transparent'
+                }`}
+            >
+              AST
+            </button>
+          </div>
+
+          {/* Tab Content */}
+          <div className="flex-1 overflow-hidden bg-black">
+            {activeTab === 'tokens' ? (
+              <TokensView tokens={analysisResult?.tokens} />
+            ) : (
+              <ASTView ast={analysisResult?.ast} />
+            )}
+          </div>
         </div>
       </div>
     </div>

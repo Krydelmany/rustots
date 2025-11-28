@@ -16,14 +16,15 @@ function createWindow() {
     },
   });
 
-  if (isDev) {
-    mainWindow.loadURL('http://localhost:5173');
+  if (process.env.VITE_DEV_SERVER_URL) {
+    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
     mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile(path.join(__dirname, '../build/index.html'));
   }
 }
 
+app.disableHardwareAcceleration();
 app.whenReady().then(createWindow);
 
 app.on('window-all-closed', () => {
@@ -41,15 +42,42 @@ app.on('activate', () => {
 // IPC handlers
 ipcMain.handle('analyze-code', async (event, code: string) => {
   return new Promise((resolve, reject) => {
-    const rustotsBinary = path.join(__dirname, '../../core/target/release/rustots');
-    
+    const isWindows = process.platform === 'win32';
+    const extension = isWindows ? '.exe' : '';
+
+    const rustotsBinary = path.join(__dirname, `../../core/target/release/rustots${extension}`);
+    const debugBinary = path.join(__dirname, `../../core/target/debug/rustots${extension}`);
+
+    console.log('__dirname:', __dirname);
+    console.log('Checking release binary:', rustotsBinary);
+    console.log('Checking debug binary:', debugBinary);
+
     // Check if binary exists, fallback to debug version
-    const binaryPath = fs.existsSync(rustotsBinary) 
-      ? rustotsBinary 
-      : path.join(__dirname, '../../core/target/debug/rustots');
-    
-    const rustots = spawn(binaryPath, ['--lex', '--stdin'], {
-      stdio: ['pipe', 'pipe', 'pipe']
+    let binaryPath = '';
+    if (fs.existsSync(rustotsBinary)) {
+      binaryPath = rustotsBinary;
+      console.log('Found release binary');
+    } else if (fs.existsSync(debugBinary)) {
+      binaryPath = debugBinary;
+      console.log('Found debug binary');
+    } else {
+      console.error('Binary not found in release or debug paths');
+      reject(new Error(`Rust binary not found. Checked:\n${rustotsBinary}\n${debugBinary}`));
+      return;
+    }
+
+    // Write code to a temporary file to avoid stdin pipe issues on Windows
+    const tempFilePath = path.join(app.getPath('userData'), 'temp_analysis.ts');
+    try {
+      fs.writeFileSync(tempFilePath, code);
+    } catch (e) {
+      reject(new Error(`Failed to create temp file: ${e.message}`));
+      return;
+    }
+
+    // Pass the file path as an argument instead of using --stdin
+    const rustots = spawn(binaryPath, [tempFilePath], {
+      stdio: ['ignore', 'pipe', 'pipe']
     });
 
     let output = '';
@@ -64,25 +92,36 @@ ipcMain.handle('analyze-code', async (event, code: string) => {
     });
 
     rustots.on('close', (code) => {
+      // Clean up temp file
+      try {
+        if (fs.existsSync(tempFilePath)) {
+          fs.unlinkSync(tempFilePath);
+        }
+      } catch (e) {
+        console.error('Failed to delete temp file:', e);
+      }
+
       if (code === 0) {
         try {
           const result = JSON.parse(output);
           resolve(result);
         } catch (e) {
+          console.error('Parse error:', e);
           reject(new Error(`Failed to parse output: ${e.message}`));
         }
       } else {
+        console.error('Process failed with code', code, 'Error:', error);
         reject(new Error(`Process exited with code ${code}: ${error}`));
       }
     });
 
     rustots.on('error', (err) => {
+      console.error('Spawn error:', err);
       reject(new Error(`Failed to spawn process: ${err.message}`));
     });
 
-    // Send code to stdin
-    rustots.stdin.write(code);
-    rustots.stdin.end();
+    // No need to write to stdin anymore
+
   });
 });
 
