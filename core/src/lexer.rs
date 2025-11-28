@@ -206,7 +206,8 @@ impl<'a> Lexer<'a> {
                     })
                 }
                 _ => {
-                    // Caractere não reconhecido - gera token Unknown
+                    // Se chegamos aqui, o caractere não bateu com nenhuma regra conhecida.
+                    // Marcamos como erro léxico para o usuário corrigir.
                     self.advance();
                     return Some(Token {
                         token_type: TokenType::Unknown,
@@ -290,21 +291,23 @@ impl<'a> Lexer<'a> {
 
     fn consume_string(&mut self, quote: char) -> (String, Option<String>) {
         let start = self.position;
-        self.advance(); // consume opening quote
+        let start = self.position;
+        self.advance();
         let mut terminated = false;
 
         while let Some(ch) = self.current_char() {
             if ch == quote {
-                self.advance(); // consume closing quote
+                self.advance();
                 terminated = true;
                 break;
             } else if ch == '\\' {
-                self.advance(); // consume backslash
+                self.advance();
                 if self.current_char().is_some() {
-                    self.advance(); // consume escaped char
+                    self.advance();
                 }
             } else if ch == '\n' || ch == '\r' {
-                // String atravessa linha (erro em alguns casos, mas continuamos)
+                // Detectamos se a string quebra a linha.
+                // Em JS/TS isso geralmente é erro, mas deixamos passar por enquanto.
                 break;
             } else {
                 self.advance();
@@ -335,14 +338,14 @@ impl<'a> Lexer<'a> {
             }
         } else if self.peek_char() == Some('*') {
             // Multi-line comment - pode não terminar
-            self.advance(); // consume '/'
-            self.advance(); // consume '*'
+            self.advance();
+            self.advance();
             terminated = false;
 
             while self.position < self.input.len() {
                 if self.current_char() == Some('*') && self.peek_char() == Some('/') {
-                    self.advance(); // consume '*'
-                    self.advance(); // consume '/'
+                    self.advance();
+                    self.advance();
                     terminated = true;
                     break;
                 }

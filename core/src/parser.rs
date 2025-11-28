@@ -2,6 +2,13 @@ use crate::lexer::{Token, TokenType};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize)]
+pub enum ParseError {
+    UnexpectedToken { expected: String, found: String },
+    UnexpectedEOF,
+    InvalidSyntax(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Program {
     pub body: Vec<Statement>,
 }
@@ -61,6 +68,11 @@ pub enum Expression {
         raw: String,
     },
     Identifier(Identifier),
+    UnaryExpression {
+        operator: String,
+        argument: Box<Expression>,
+        prefix: bool,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -75,7 +87,8 @@ pub struct Parser {
 
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
-        // Filter out whitespace and comments for parsing
+        // Filtramos tokens que não afetam a sintaxe (espaços, comentários, quebras de linha)
+        // Isso simplifica muito a lógica do parser, pois não precisamos ficar pulando eles manualmente toda hora
         let tokens = tokens
             .into_iter()
             .filter(|t| !matches!(t.token_type, TokenType::Whitespace | TokenType::Comment | TokenType::Newline))
@@ -84,22 +97,18 @@ impl Parser {
         Self { tokens, current: 0 }
     }
 
-    pub fn parse(&mut self) -> Program {
+    pub fn parse(&mut self) -> Result<Program, ParseError> {
         let mut body = Vec::new();
 
         while !self.is_at_end() {
-            if let Some(stmt) = self.parse_statement() {
-                body.push(stmt);
-            } else {
-                // Panic recovery or skip token could go here
-                self.advance();
-            }
+            let stmt = self.parse_statement()?;
+            body.push(stmt);
         }
 
-        Program { body }
+        Ok(Program { body })
     }
 
-    fn parse_statement(&mut self) -> Option<Statement> {
+    fn parse_statement(&mut self) -> Result<Statement, ParseError> {
         if self.match_keyword("function") {
             return self.parse_function_declaration();
         }
@@ -110,41 +119,42 @@ impl Parser {
             return self.parse_return_statement();
         }
         if self.check(TokenType::Punctuation) && self.peek().unwrap().value == "{" {
-            return Some(Statement::BlockStatement(self.parse_block_statement()));
+            return Ok(Statement::BlockStatement(self.parse_block_statement()?));
         }
 
         self.parse_expression_statement()
     }
 
-    fn parse_function_declaration(&mut self) -> Option<Statement> {
+    fn parse_function_declaration(&mut self) -> Result<Statement, ParseError> {
         let id = self.parse_identifier()?;
         
-        self.consume(TokenType::Punctuation, "(");
+        self.consume(TokenType::Punctuation, "(")?;
         let mut params = Vec::new();
         if !self.check_value(")") {
             loop {
-                if let Some(param) = self.parse_identifier() {
-                    params.push(param);
-                    // Skip type annotation if present
-                    if self.match_punctuation(":") {
-                        self.consume_type_annotation();
-                    }
+                let param = self.parse_identifier()?;
+                params.push(param);
+                // TODO: Implementar análise de tipos completa.
+                // Por enquanto, apenas consumimos a anotação de tipo para não quebrar o parser.
+                if self.match_punctuation(":") {
+                    self.consume_type_annotation();
                 }
+                
                 if !self.match_punctuation(",") {
                     break;
                 }
             }
         }
-        self.consume(TokenType::Punctuation, ")");
+        self.consume(TokenType::Punctuation, ")")?;
 
         let mut return_type = None;
         if self.match_punctuation(":") {
             return_type = Some(self.consume_type_annotation());
         }
 
-        let body = self.parse_block_statement();
+        let body = self.parse_block_statement()?;
 
-        Some(Statement::FunctionDeclaration {
+        Ok(Statement::FunctionDeclaration {
             id,
             params,
             return_type,
@@ -152,7 +162,7 @@ impl Parser {
         })
     }
 
-    fn parse_variable_declaration(&mut self) -> Option<Statement> {
+    fn parse_variable_declaration(&mut self) -> Result<Statement, ParseError> {
         let kind = self.previous().value.clone();
         let mut declarations = Vec::new();
 
@@ -161,7 +171,7 @@ impl Parser {
             let mut init = None;
 
             if self.match_operator("=") {
-                init = self.parse_expression();
+                init = Some(self.parse_expression()?);
             }
 
             declarations.push(VariableDeclarator { id, init });
@@ -171,50 +181,47 @@ impl Parser {
             }
         }
 
-        self.consume(TokenType::Punctuation, ";");
+        self.consume(TokenType::Punctuation, ";")?;
 
-        Some(Statement::VariableDeclaration { kind, declarations })
+        Ok(Statement::VariableDeclaration { kind, declarations })
     }
 
-    fn parse_return_statement(&mut self) -> Option<Statement> {
+    fn parse_return_statement(&mut self) -> Result<Statement, ParseError> {
         let mut argument = None;
         if !self.check(TokenType::Punctuation) || self.peek().unwrap().value != ";" {
-            argument = self.parse_expression();
+            argument = Some(self.parse_expression()?);
         }
-        self.consume(TokenType::Punctuation, ";");
-        Some(Statement::ReturnStatement { argument })
+        self.consume(TokenType::Punctuation, ";")?;
+        Ok(Statement::ReturnStatement { argument })
     }
 
-    fn parse_block_statement(&mut self) -> BlockStatement {
-        self.consume(TokenType::Punctuation, "{");
+    fn parse_block_statement(&mut self) -> Result<BlockStatement, ParseError> {
+        self.consume(TokenType::Punctuation, "{")?;
         let mut body = Vec::new();
         while !self.check_value("}") && !self.is_at_end() {
-            if let Some(stmt) = self.parse_statement() {
-                body.push(stmt);
-            } else {
-                self.advance();
-            }
+            let stmt = self.parse_statement()?;
+            body.push(stmt);
         }
-        self.consume(TokenType::Punctuation, "}");
-        BlockStatement { body }
+        self.consume(TokenType::Punctuation, "}")?;
+        Ok(BlockStatement { body })
     }
 
-    fn parse_expression_statement(&mut self) -> Option<Statement> {
+    fn parse_expression_statement(&mut self) -> Result<Statement, ParseError> {
         let expression = self.parse_expression()?;
-        self.consume(TokenType::Punctuation, ";");
-        Some(Statement::ExpressionStatement { expression })
+        self.consume(TokenType::Punctuation, ";")?;
+        Ok(Statement::ExpressionStatement { expression })
     }
 
-    fn parse_expression(&mut self) -> Option<Expression> {
-        self.parse_binary_expression()
+    fn parse_expression(&mut self) -> Result<Expression, ParseError> {
+        self.parse_logical_or()
     }
 
-    fn parse_binary_expression(&mut self) -> Option<Expression> {
-        let mut left = self.parse_call_expression()?;
+    fn parse_logical_or(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_logical_and()?;
 
-        while self.match_operator("+") || self.match_operator("-") || self.match_operator("*") || self.match_operator("/") {
+        while self.match_operator("||") {
             let operator = self.previous().value.clone();
-            let right = self.parse_call_expression()?;
+            let right = self.parse_logical_and()?;
             left = Expression::BinaryExpression {
                 operator,
                 left: Box::new(left),
@@ -222,62 +229,203 @@ impl Parser {
             };
         }
 
-        Some(left)
+        Ok(left)
     }
 
-    fn parse_call_expression(&mut self) -> Option<Expression> {
-        let mut expr = self.parse_primary()?;
+    fn parse_logical_and(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_equality()?;
 
-        while self.match_punctuation("(") {
-            let mut arguments = Vec::new();
-            if !self.check_value(")") {
-                loop {
-                    if let Some(arg) = self.parse_expression() {
-                        arguments.push(arg);
-                    }
-                    if !self.match_punctuation(",") {
-                        break;
-                    }
-                }
-            }
-            self.consume(TokenType::Punctuation, ")");
-            expr = Expression::CallExpression {
-                callee: Box::new(expr),
-                arguments,
+        while self.match_operator("&&") {
+            let operator = self.previous().value.clone();
+            let right = self.parse_equality()?;
+            left = Expression::BinaryExpression {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
             };
         }
 
-        Some(expr)
+        Ok(left)
     }
 
-    fn parse_primary(&mut self) -> Option<Expression> {
+    fn parse_equality(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_relational()?;
+
+        while self.match_operator("==") || self.match_operator("!=") {
+            let operator = self.previous().value.clone();
+            let right = self.parse_relational()?;
+            left = Expression::BinaryExpression {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_relational(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_additive()?;
+
+        while self.match_operator("<") || self.match_operator(">") || self.match_operator("<=") || self.match_operator(">=") {
+            let operator = self.previous().value.clone();
+            let right = self.parse_additive()?;
+            left = Expression::BinaryExpression {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_additive(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_multiplicative()?;
+
+        while self.match_operator("+") || self.match_operator("-") {
+            let operator = self.previous().value.clone();
+            let right = self.parse_multiplicative()?;
+            left = Expression::BinaryExpression {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_multiplicative(&mut self) -> Result<Expression, ParseError> {
+        let mut left = self.parse_unary()?;
+
+        while self.match_operator("*") || self.match_operator("/") {
+            let operator = self.previous().value.clone();
+            let right = self.parse_unary()?;
+            left = Expression::BinaryExpression {
+                operator,
+                left: Box::new(left),
+                right: Box::new(right),
+            };
+        }
+
+        Ok(left)
+    }
+
+    fn parse_unary(&mut self) -> Result<Expression, ParseError> {
+        if self.match_operator("!") || self.match_operator("-") || self.match_keyword("typeof") {
+            let operator = self.previous().value.clone();
+            let argument = self.parse_unary()?;
+            Ok(Expression::UnaryExpression {
+                operator,
+                argument: Box::new(argument),
+                prefix: true,
+            })
+        } else {
+            self.parse_member_call_expression()
+        }
+    }
+
+    fn parse_member_call_expression(&mut self) -> Result<Expression, ParseError> {
+        let mut expr = self.parse_primary()?;
+
+        loop {
+            if self.match_punctuation("(") {
+                expr = self.finish_call(expr)?;
+            } else if self.match_punctuation(".") {
+                let property = self.parse_identifier()?;
+                expr = Expression::MemberExpression {
+                    object: Box::new(expr),
+                    property: Box::new(Expression::Identifier(property)),
+                    computed: false,
+                };
+            } else if self.match_punctuation("[") {
+                let property = self.parse_expression()?;
+                self.consume(TokenType::Punctuation, "]")?;
+                expr = Expression::MemberExpression {
+                    object: Box::new(expr),
+                    property: Box::new(property),
+                    computed: true,
+                };
+            } else {
+                break;
+            }
+        }
+
+        Ok(expr)
+    }
+
+    fn finish_call(&mut self, callee: Expression) -> Result<Expression, ParseError> {
+        let mut arguments = Vec::new();
+        if !self.check_value(")") {
+            loop {
+                arguments.push(self.parse_expression()?);
+                if !self.match_punctuation(",") {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::Punctuation, ")")?;
+
+        Ok(Expression::CallExpression {
+            callee: Box::new(callee),
+            arguments,
+        })
+    }
+
+    fn parse_primary(&mut self) -> Result<Expression, ParseError> {
         if self.match_type(TokenType::Literal) {
-            return Some(Expression::Literal {
+            return Ok(Expression::Literal {
                 value: self.previous().value.clone(),
                 raw: self.previous().value.clone(),
             });
         }
+        if self.match_keyword("true") {
+            return Ok(Expression::Literal {
+                value: "true".to_string(),
+                raw: "true".to_string(),
+            });
+        }
+        if self.match_keyword("false") {
+            return Ok(Expression::Literal {
+                value: "false".to_string(),
+                raw: "false".to_string(),
+            });
+        }
         if self.match_type(TokenType::Identifier) {
-            return Some(Expression::Identifier(Identifier {
+            return Ok(Expression::Identifier(Identifier {
                 name: self.previous().value.clone(),
             }));
         }
-        None
+        if self.match_punctuation("(") {
+            let expr = self.parse_expression()?;
+            self.consume(TokenType::Punctuation, ")")?;
+            return Ok(expr);
+        }
+        
+        Err(ParseError::UnexpectedToken {
+            expected: "Expressão".to_string(),
+            found: self.peek().map(|t| t.value.clone()).unwrap_or_else(|| "Fim de Arquivo".to_string()),
+        })
     }
 
-    fn parse_identifier(&mut self) -> Option<Identifier> {
+    fn parse_identifier(&mut self) -> Result<Identifier, ParseError> {
         if self.match_type(TokenType::Identifier) {
-            Some(Identifier {
+            Ok(Identifier {
                 name: self.previous().value.clone(),
             })
         } else {
-            None
+            Err(ParseError::UnexpectedToken {
+                expected: "Identificador".to_string(),
+                found: self.peek().map(|t| t.value.clone()).unwrap_or_else(|| "Fim de Arquivo".to_string()),
+            })
         }
     }
 
     // Helpers
     fn consume_type_annotation(&mut self) -> String {
-        // Simple skipper for type annotations: string, number, etc.
+    // Função auxiliar para pular a anotação de tipo (ex: : string)
+    // Necessário porque nossa AST ainda não guarda informações de tipo complexas
         if self.match_type(TokenType::Identifier) || self.match_type(TokenType::Keyword) {
             self.previous().value.clone()
         } else {
@@ -325,7 +473,6 @@ impl Parser {
         if self.is_at_end() {
             false
         } else {
-            // Simple enum variant check
             std::mem::discriminant(&self.peek().unwrap().token_type) == std::mem::discriminant(&token_type)
         }
     }
@@ -338,11 +485,14 @@ impl Parser {
         }
     }
 
-    fn consume(&mut self, token_type: TokenType, value: &str) -> Option<&Token> {
+    fn consume(&mut self, token_type: TokenType, value: &str) -> Result<&Token, ParseError> {
         if self.check(token_type.clone()) && self.peek().unwrap().value == value {
-            Some(self.advance())
+            Ok(self.advance())
         } else {
-            None
+            Err(ParseError::UnexpectedToken {
+                expected: value.to_string(),
+                found: self.peek().map(|t| t.value.clone()).unwrap_or_else(|| "Fim de Arquivo".to_string()),
+            })
         }
     }
 
@@ -365,3 +515,5 @@ impl Parser {
         &self.tokens[self.current - 1]
     }
 }
+
+

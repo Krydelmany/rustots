@@ -46,7 +46,13 @@ fn main() -> anyhow::Result<()> {
     let tokens = lexer.tokenize();
 
     let mut parser = Parser::new(tokens.clone());
-    let ast = parser.parse();
+    let ast = match parser.parse() {
+        Ok(program) => Some(program),
+        Err(e) => {
+            eprintln!("Erro de Análise: {:?}", e);
+            None
+        }
+    };
 
     let mut result_tokens = tokens;
     if matches.get_flag("only-malformed") {

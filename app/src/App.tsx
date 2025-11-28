@@ -100,7 +100,6 @@ console.log(result);`);
 
   return (
     <div className="flex flex-col h-screen bg-black text-gray-100 overflow-hidden">
-      {/* Header/Toolbar */}
       <div className="border-b border-neutral-800 bg-neutral-950 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <h1 className="text-base font-semibold text-gray-200 tracking-tight">
@@ -151,9 +150,7 @@ console.log(result);`);
         </div>
       </div>
 
-      {/* Main Content - Split View */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Panel - Editor */}
         <div className="flex-1 flex flex-col min-w-[400px]">
           <Editor
             height="100%"
@@ -195,7 +192,6 @@ console.log(result);`);
           />
         </div>
 
-        {/* Resizable Divider */}
         <div
           className="w-1 bg-neutral-900 hover:bg-neutral-700 cursor-col-resize transition-colors relative group"
           onMouseDown={handleMouseDown}
@@ -203,12 +199,10 @@ console.log(result);`);
           <div className="absolute inset-y-0 -left-1 -right-1 group-hover:bg-neutral-700/20"></div>
         </div>
 
-        {/* Right Panel - Analysis Tools */}
         <div
           className="flex flex-col bg-neutral-950"
           style={{ width: `${panelWidth}px`, minWidth: '300px' }}
         >
-          {/* Tabs */}
           <div className="flex border-b border-neutral-900 bg-black">
             <button
               onClick={() => setActiveTab('tokens')}
@@ -230,7 +224,6 @@ console.log(result);`);
             </button>
           </div>
 
-          {/* Tab Content */}
           <div className="flex-1 overflow-hidden bg-black">
             {activeTab === 'tokens' ? (
               <TokensView tokens={analysisResult?.tokens} />
