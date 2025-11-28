@@ -3,12 +3,14 @@ use std::io::{self, Read};
 use std::fs;
 
 mod lexer;
+mod parser;
 
 use lexer::Lexer;
+use parser::Parser;
 
 fn main() -> anyhow::Result<()> {
     let matches = Command::new("rustots")
-        .about("Analisador Léxico para TypeScript")
+        .about("Analisador Léxico e Sintático para TypeScript")
         .arg(
             Arg::new("stdin")
                 .long("stdin")
@@ -20,18 +22,6 @@ fn main() -> anyhow::Result<()> {
                 .help("Arquivo de entrada (.ts)")
                 .value_name("FILE")
                 .index(1),
-        )
-        .arg(
-            Arg::new("filter")
-                .long("filter")
-                .help("Filtrar tipos de token (ex: keyword,identifier)")
-                .value_name("TYPES"),
-        )
-        .arg(
-            Arg::new("no-whitespace")
-                .long("no-whitespace")
-                .help("Omitir tokens de whitespace e newline")
-                .action(clap::ArgAction::SetTrue),
         )
         .arg(
             Arg::new("only-malformed")
@@ -53,27 +43,19 @@ fn main() -> anyhow::Result<()> {
         };
 
     let mut lexer = Lexer::new(&input);
-    let mut tokens = lexer.tokenize();
+    let tokens = lexer.tokenize();
 
-    // Filtrar tokens se necessário
-    if matches.get_flag("no-whitespace") {
-        tokens.retain(|t| !matches!(t.token_type, lexer::TokenType::Whitespace | lexer::TokenType::Newline));
-    }
+    let mut parser = Parser::new(tokens.clone());
+    let ast = parser.parse();
 
+    let mut result_tokens = tokens;
     if matches.get_flag("only-malformed") {
-        tokens.retain(|t| t.malformed.is_some());
-    }
-
-    if let Some(filter_types) = matches.get_one::<String>("filter") {
-        let types: Vec<&str> = filter_types.split(',').map(|s| s.trim()).collect();
-        tokens.retain(|t| {
-            let type_str = format!("{:?}", t.token_type).to_lowercase();
-            types.iter().any(|filter| type_str.contains(&filter.to_lowercase()))
-        });
+        result_tokens.retain(|t| t.malformed.is_some());
     }
 
     let result = serde_json::json!({
-        "tokens": tokens
+        "tokens": result_tokens,
+        "ast": ast
     });
     println!("{}", serde_json::to_string_pretty(&result)?);
 
