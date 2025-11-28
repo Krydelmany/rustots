@@ -191,16 +191,31 @@ function ASTNodeComponent({ node, depth = 0, name }: ASTNodeProps) {
 
 interface ASTViewProps {
     ast: any;
+    error?: string;
 }
 
-export function ASTView({ ast }: ASTViewProps) {
+export function ASTView({ ast, error }: ASTViewProps) {
     if (!ast) {
         return (
             <div className="h-full flex items-center justify-center text-gray-400 p-8">
                 <div className="text-center space-y-3">
                     <AlertCircle className="w-10 h-10 mx-auto opacity-40" />
-                    <p className="text-sm font-medium text-gray-300">Nenhuma AST para exibir</p>
-                    <p className="text-xs text-gray-500">Clique em "Analisar" para ver a árvore sintática</p>
+                    {error ? (
+                        <>
+                            <p className="text-sm font-medium text-red-400">Erro na Análise</p>
+                            <div className="max-w-md mx-auto">
+                                <p className="text-xs text-gray-400 bg-red-950/30 border border-red-900/50 rounded p-3 font-mono text-left break-words">
+                                    {error}
+                                </p>
+                            </div>
+                            <p className="text-xs text-gray-500 mt-2">Verifique a sintaxe do seu código (ponto e vírgula, parênteses, etc.)</p>
+                        </>
+                    ) : (
+                        <>
+                            <p className="text-sm font-medium text-gray-300">Nenhuma AST para exibir</p>
+                            <p className="text-xs text-gray-500">Clique em "Analisar" para ver a árvore sintática</p>
+                        </>
+                    )}
                 </div>
             </div>
         );

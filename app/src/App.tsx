@@ -2,11 +2,12 @@ import { useState, useCallback, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
 import { TokensView, Token } from './components/TokensView';
 import { ASTView } from './components/ASTView';
-import { FolderOpen, Save, Play } from 'lucide-react';
+import { FolderOpen, Save, Play, X } from 'lucide-react';
 
 interface AnalysisResult {
   tokens: Token[];
   ast: any;
+  error?: string;
 }
 
 type Tab = 'tokens' | 'ast';
@@ -25,6 +26,7 @@ console.log(result);`);
   const [activeTab, setActiveTab] = useState<Tab>('tokens');
   const [panelWidth, setPanelWidth] = useState(750);
   const [isResizing, setIsResizing] = useState(false);
+  const [showErrorToast, setShowErrorToast] = useState(false);
 
   const analyzeCode = useCallback(async () => {
     if (!window.api) {
@@ -36,12 +38,18 @@ console.log(result);`);
     try {
       const result = await window.api.analyze(code);
       setAnalysisResult(result);
+
+      // Mostrar toast se houver erro e estiver na aba de Tokens
+      if (result.error && activeTab === 'tokens') {
+        setShowErrorToast(true);
+        setTimeout(() => setShowErrorToast(false), 4000);
+      }
     } catch (error) {
       console.error('Analysis failed:', error);
     } finally {
       setIsAnalyzing(false);
     }
-  }, [code]);
+  }, [code, activeTab]);
 
   const openFile = useCallback(async () => {
     if (!window.api) return;
@@ -228,11 +236,34 @@ console.log(result);`);
             {activeTab === 'tokens' ? (
               <TokensView tokens={analysisResult?.tokens} />
             ) : (
-              <ASTView ast={analysisResult?.ast} />
+              <ASTView ast={analysisResult?.ast} error={analysisResult?.error} />
             )}
           </div>
         </div>
       </div>
+
+      {/* Toast de Erro */}
+      {showErrorToast && analysisResult?.error && (
+        <div className="fixed bottom-6 right-6 bg-red-950/90 border border-red-800 rounded-lg shadow-2xl p-4 max-w-md animate-slide-up backdrop-blur-sm">
+          <div className="flex items-start gap-3">
+            <div className="flex-shrink-0 w-5 h-5 rounded-full bg-red-500/20 flex items-center justify-center mt-0.5">
+              <div className="w-2 h-2 rounded-full bg-red-400"></div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-red-200 mb-1">Erro na Análise</p>
+              <p className="text-xs text-red-300/80">
+                O código tem erros de sintaxe. Veja a aba AST para detalhes.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowErrorToast(false)}
+              className="flex-shrink-0 text-red-400 hover:text-red-200 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
