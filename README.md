@@ -1,6 +1,6 @@
 # Analisador de TypeScript (Rust + React)
 
-Trabalho da disciplina de Compiladores - Grupo 4.
+Trabalho da disciplina de Compiladores
 Este projeto é um analisador léxico e sintático para TypeScript, feito com um núcleo em **Rust** (para performance) e uma interface em **React/Electron** (para visualização).
 
 ## Como Rodar
